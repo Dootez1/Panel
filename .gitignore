@@ -1,0 +1,18 @@
+# Environment variables
+.env
+
+# SQLite databases
+*.db
+bot.db
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE & OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+edge_temp/
