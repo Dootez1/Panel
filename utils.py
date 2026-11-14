@@ -1,5 +1,6 @@
 import html
 import time
+import asyncio
 from pathlib import Path
 from aiogram import Bot
 from aiogram.types import FSInputFile, CallbackQuery
@@ -201,6 +202,7 @@ async def show_worker_panel(bot: Bot, user_id: int, target_chat_id: int | None =
 # ==================== Mandatory Subscription ====================
 
 _SUB_CACHE: dict[int, tuple[bool, float]] = {}  # user_id -> (is_sub, timestamp)
+_INACCESSIBLE_TARGETS: dict[str | int, float] = {}  # target -> timestamp when 'inaccessible' was seen
 
 def extract_chat_target(url: str) -> str | None:
     if not url:
@@ -256,12 +258,18 @@ async def check_user_subscription(
     now = time.time()
     if not bypass_cache and user_id in _SUB_CACHE:
         is_sub, cached_at = _SUB_CACHE[user_id]
-        if now - cached_at < 45.0:
+        if now - cached_at < 180.0:
             return is_sub, []
 
-    channels = await get_required_channels_list()
     user = await get_user(user_id)
     has_confirmed_db = bool(user and "is_subscribed" in user.keys() and user["is_subscribed"])
+
+    # If user already verified in DB, allow normal actions without stalling on Telegram API calls
+    if has_confirmed_db and not is_verifying and not bypass_cache:
+        _SUB_CACHE[user_id] = (True, now)
+        return True, []
+
+    channels = await get_required_channels_list()
 
     # If user hasn't verified before and is not currently clicking verify, block them immediately
     if not has_confirmed_db and not is_verifying:
@@ -273,15 +281,26 @@ async def check_user_subscription(
     for ch in channels:
         target = ch.get("target")
         if target:
+            # Skip if we already know Telegram forbids inspecting member list on this channel (bot not admin)
+            if target in _INACCESSIBLE_TARGETS:
+                if now - _INACCESSIBLE_TARGETS[target] < 300.0:
+                    continue
+
             try:
-                member = await bot.get_chat_member(chat_id=target, user_id=user_id)
+                member = await asyncio.wait_for(
+                    bot.get_chat_member(chat_id=target, user_id=user_id),
+                    timeout=2.0
+                )
                 # If Telegram confirmed status is left or kicked -> definitely not subscribed
                 if member.status in ("left", "kicked"):
                     unsubscribed.append(ch)
-            except Exception:
-                # If bot is not admin in channel, Telegram raises 'member list is inaccessible'.
-                # For non-admin channels, we rely on user clicking verify.
+            except asyncio.TimeoutError:
+                # If network times out, do not stall user
                 pass
+            except Exception as e:
+                err_str = str(e).lower()
+                if "member list is inaccessible" in err_str:
+                    _INACCESSIBLE_TARGETS[target] = now
         else:
             # Private invite links without target chat ID
             pass
