@@ -18,6 +18,7 @@ from database import (
     set_user_status,
     set_user_ban_status,
     set_user_balance,
+    set_user_stats,
     search_users,
     get_top_workers,
     get_kassa,
@@ -536,7 +537,8 @@ async def cb_adm_top_workers(call: CallbackQuery, bot: Bot):
         uname = f"@{u['username']}" if u["username"] else u["full_name"]
         earned = float(u["total_earned"] or 0.0)
         p_cnt = u["profits_count"] or 0
-        text += f"{m} <b>{html.escape(uname)}</b> — <b>{earned:g} GRAM</b> ({p_cnt} проф.)\n"
+        earned_str = f"{earned:.2f}" if earned > 0 else "0"
+        text += f"{m} <b>{html.escape(uname)}</b> — <b>{earned_str} GRAM</b> ({p_cnt} проф.)\n"
         buttons.append([InlineKeyboardButton(text=f"👤 {uname} ({u['user_id']})", callback_data=f"adm_view_u:{u['user_id']}")])
 
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="adm_workers_menu")])
@@ -805,6 +807,93 @@ async def step_admin_set_balance(message: Message, state: FSMContext, bot: Bot):
         InlineKeyboardButton(text="👤 К карточке воркера", callback_data=f"adm_view_u:{user_id}")
     ]])
     await clean_render(bot, message.chat.id, f"✅ <b>Баланс воркера {user_id} установлен на {val:g} GRAM!</b>", reply_markup=kb)
+
+@router.callback_query(F.data.startswith("adm_u_earned:"))
+async def cb_adm_u_earned(call: CallbackQuery, state: FSMContext, bot: Bot):
+    if not await check_admin_access(call.from_user.id, bot):
+        await call.answer("⛔️ Доступ запрещён!", show_alert=True)
+        return
+
+    user_id = int(call.data.split(":")[1])
+    await state.set_state(AdminUserActionState.waiting_earned)
+    await state.update_data(target_user_id=user_id)
+
+    user = await get_user(user_id)
+    cur_earned = float(user["total_earned"] or 0.0) if user else 0.0
+
+    text = (
+        f"🏆 <b>Корректировка заработанного для Топа (ID: <code>{user_id}</code>)</b>\n\n"
+        f"Текущая сумма заработанного: <b>{cur_earned:.2f} GRAM</b>\n\n"
+        "Введите новую общую сумму заработанного в GRAM (например: <code>7.00</code>):"
+    )
+    await clean_render(bot, call.from_user.id, text, reply_markup=admin_cancel_inline_keyboard(f"adm_view_u:{user_id}"), call=call)
+    await call.answer()
+
+@router.message(AdminUserActionState.waiting_earned, F.chat.type == "private")
+async def step_admin_set_earned(message: Message, state: FSMContext, bot: Bot):
+    await safe_delete_message(bot, message.chat.id, message.message_id)
+
+    if not await check_admin_access(message.from_user.id, bot):
+        return
+
+    text = (message.text or "").strip().replace(",", ".")
+    try:
+        val = float(text)
+        if val < 0 or not math.isfinite(val):
+            raise ValueError()
+    except (ValueError, TypeError):
+        await clean_render(bot, message.chat.id, "⚠️ Введите неотрицательное число в GRAM (например: 7.00):")
+        return
+
+    data = await state.get_data()
+    user_id = data.get("target_user_id")
+    await state.clear()
+
+    await set_user_stats(user_id, earned=val)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="👤 К карточке воркера", callback_data=f"adm_view_u:{user_id}"),
+        InlineKeyboardButton(text="🏆 В топ воркеров", callback_data="adm_top_workers")
+    ]])
+    await clean_render(bot, message.chat.id, f"✅ Заработано для воркера <code>{user_id}</code> установлено на <b>{val:.2f} GRAM</b>!", reply_markup=kb)
+
+@router.message(Command("setearned", "setworker"), F.chat.type == "private")
+async def cmd_set_earned_private(message: Message, bot: Bot):
+    await safe_delete_message(bot, message.chat.id, message.message_id)
+    if not await check_admin_access(message.from_user.id, bot):
+        return
+
+    args = (message.text or "").split()[1:]
+    if len(args) < 2:
+        await clean_render(
+            bot,
+            message.chat.id,
+            "ℹ️ <b>Формат команды:</b>\n<code>/setearned @username 7.00</code>\nили: <code>/setearned 8359410840 7.00</code>"
+        )
+        return
+
+    target_query = args[0]
+    amount_str = args[1].replace(",", ".")
+    try:
+        amount = float(amount_str)
+        if amount < 0 or not math.isfinite(amount):
+            raise ValueError()
+    except (ValueError, TypeError):
+        await clean_render(bot, message.chat.id, "⚠️ Укажите корректную сумму в GRAM.")
+        return
+
+    users = await search_users(target_query, limit=1)
+    if not users:
+        await clean_render(bot, message.chat.id, f"❌ Воркер <code>{target_query}</code> не найден в базе данных.")
+        return
+
+    target_user = users[0]
+    await set_user_stats(target_user["user_id"], earned=amount)
+    uname = f"@{target_user['username']}" if target_user["username"] else target_user["full_name"]
+    await clean_render(
+        bot,
+        message.chat.id,
+        f"✅ Заработано для <b>{html.escape(uname)}</b> успешно установлено на <b>{amount:.2f} GRAM</b>!"
+    )
 
 @router.callback_query(F.data.startswith("adm_u_msg:"))
 async def cb_adm_u_msg(call: CallbackQuery, state: FSMContext, bot: Bot):

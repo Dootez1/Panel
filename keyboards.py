@@ -241,10 +241,13 @@ def admin_user_card_keyboard(user_id: int, is_banned: bool) -> InlineKeyboardMar
                 InlineKeyboardButton(text="💳 Зафиксировать выплату", callback_data=f"adm_u_pay:{user_id}")
             ],
             [
-                InlineKeyboardButton(text="✏️ Изменить баланс", callback_data=f"adm_u_bal:{user_id}"),
-                InlineKeyboardButton(text="💬 Написать в ЛС", callback_data=f"adm_u_msg:{user_id}")
+                InlineKeyboardButton(text="💰 Баланс", callback_data=f"adm_u_bal:{user_id}"),
+                InlineKeyboardButton(text="🏆 Заработано (Топ)", callback_data=f"adm_u_earned:{user_id}")
             ],
-            [InlineKeyboardButton(text=ban_btn_text, callback_data=ban_callback)],
+            [
+                InlineKeyboardButton(text="💬 Написать в ЛС", callback_data=f"adm_u_msg:{user_id}"),
+                InlineKeyboardButton(text=ban_btn_text, callback_data=ban_callback)
+            ],
             [
                 InlineKeyboardButton(text="🔍 Другой воркер", callback_data="adm_user_search"),
                 InlineKeyboardButton(text="👑 В админку", callback_data="adm_back_main")

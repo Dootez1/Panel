@@ -618,3 +618,50 @@ async def cb_admin_payout_reject(call: CallbackQuery, bot: Bot):
         )
     except Exception as e:
         print(f"Не удалось уведомить воркера {user_id}: {e}")
+
+@router.message(Command("setearned", "setworker"), F.chat.id == ADMIN_CHAT_ID)
+async def cmd_set_earned_group(message: Message, bot: Bot):
+    args = message.text.split()[1:]
+    target_user = None
+    amount = None
+
+    if message.reply_to_message:
+        target_user = message.reply_to_message.from_user.id
+        if args:
+            try:
+                val = float(args[0].replace(",", "."))
+                if val >= 0 and math.isfinite(val):
+                    amount = round(val, 2)
+            except (ValueError, TypeError):
+                pass
+    elif len(args) >= 2:
+        target_user = args[0]
+        try:
+            val = float(args[1].replace(",", "."))
+            if val >= 0 and math.isfinite(val):
+                amount = round(val, 2)
+        except (ValueError, TypeError):
+            pass
+
+    if not target_user or amount is None:
+        await message.reply(
+            "ℹ️ <b>Формат команды:</b>\n"
+            "• Ответом на сообщение: <code>/setearned 7.00</code>\n"
+            "• С указанием username/ID: <code>/setearned @Igor_Almighty 7.00</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    from database import search_users, set_user_stats
+    users = await search_users(str(target_user), limit=1)
+    if not users:
+        await message.reply(f"❌ Воркер <code>{target_user}</code> не найден в базе данных.", parse_mode="HTML")
+        return
+
+    u = users[0]
+    await set_user_stats(u["user_id"], earned=amount)
+    uname = f"@{u['username']}" if u["username"] else u["full_name"]
+    await message.reply(
+        f"✅ Заработано для <b>{html.escape(uname)}</b> успешно установлено на <b>{amount:.2f} GRAM</b>!",
+        parse_mode="HTML"
+    )

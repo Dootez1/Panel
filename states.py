@@ -37,6 +37,7 @@ class AdminUserActionState(StatesGroup):
     waiting_profit_amount = State()
     waiting_payout_amount = State()
     waiting_balance = State()
+    waiting_earned = State()
     waiting_direct_message = State()
 
 class AdminKassaActionState(StatesGroup):

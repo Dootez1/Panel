@@ -326,6 +326,25 @@ async def set_user_balance(user_id: int, new_balance: float):
             "total_payouts": total_payouts
         }
 
+async def set_user_stats(user_id: int, earned: float | None = None, profits_count: int | None = None):
+    async with aiosqlite.connect(DB_PATH) as db:
+        if earned is not None and profits_count is not None:
+            await db.execute(
+                "UPDATE users SET total_earned = ?, profits_count = ? WHERE user_id = ?",
+                (round(max(0.0, earned), 2), max(0, profits_count), user_id)
+            )
+        elif earned is not None:
+            await db.execute(
+                "UPDATE users SET total_earned = ? WHERE user_id = ?",
+                (round(max(0.0, earned), 2), user_id)
+            )
+        elif profits_count is not None:
+            await db.execute(
+                "UPDATE users SET profits_count = ? WHERE user_id = ?",
+                (max(0, profits_count), user_id)
+            )
+        await db.commit()
+
 async def search_users(query: str, limit: int = 15) -> list:
     query = query.strip()
     async with aiosqlite.connect(DB_PATH) as db:
